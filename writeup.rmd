@@ -1,0 +1,78 @@
+---
+title: "Machine Learning Course Project"
+author: "ubiqe"
+date: "Sunday, February 22, 2015"
+output:
+  html_document:
+    keep_md: yes
+---
+##Data loading and cleaning
+A quick glance at the dataset shows there are a lot of missing values, some of which are coded NA, some are simply missing, some are divisions by 0 (in excel! ;) ). To tidy up we can code them all in the same way while reading in the data (the dataset should be in the working directory):
+```{r}
+library(plyr)
+library(caret)
+library(randomForest)
+train<-read.csv("pml-training.csv", stringsAsFactors=FALSE, na.string=c("", "NA", "#DIV/0!") )
+```
+
+The first 7 columns are observation ID, subject name and timestamps - they are useless for prediction (that is, if you predict on them the interpretation would be meaningless). The ratio of between and within subject variance should be taken care of (i.e. by specifying the error SS properly), but this is out of scope here. The last variable is the response, we can change it into factor.
+```{r}
+trainA<-train[,-c(1,2,3,4,5,6,7)]
+trainA<-mutate(trainA, classe=factor(classe))
+```
+Most of the columns consist of NAs - they cannont be uses for prediction. We can select the non-NA columns by counting the sum of NA values.
+
+```{r}
+goodCols<-colSums(is.na(trainA))==0
+trainA<-trainA[,goodCols]
+```
+
+Now we split the data into training and test partitions - for cross validation and computing estimates of out-of-sample error.
+
+```{r}
+inTrain<-createDataPartition(y=trainA$classe, p=0.75, list=FALSE)
+trainB<-trainA[inTrain,]
+testCV<-trainA[-inTrain,]
+```
+
+We can verify if all the selected variables are useful for prediction by checking if any of them has near zero variance.
+
+```{r}
+nzv<-nearZeroVar(trainB)
+length(nzv)
+```
+
+To reduce intercorrelation between predictors (and speed up training process) we can reduce the number of predictors via PCA. Then we predict the values for each observation and each principal component for both training and test partitions.
+
+```{r}
+pca<-preProcess(trainB[,-53], method="pca", na.remove=TRUE)
+pca$numComp
+trainC<-predict(pca, trainB[,-53])
+trainC$classe<-trainB$classe
+testPCA<-predict(pca, testCV[,-53])
+```
+
+Now comes the action - we build a model using random forests algorithm. The in-sample accuracy is very high.
+```{r}
+model<-randomForest(classe~., data=trainC)
+model
+```
+
+Finally, we validate the model against the testing partition. The out-of-sample accuracy can be estimated at 98%
+
+```{r}
+predRF<-predict(model, newdata=testPCA)
+confusionMatrix(testCV$classe, predRF)
+```
+
+The last part is the actual test with out-of-sample observations.
+
+```{r}
+testing<-read.csv("pml-testing.csv")
+testingA<-testing[,-c(1,2,3,4,5,6,7)]
+testingA<-testingA[,goodCols]
+testingPCA<-predict(pca, testingA[,-53])
+predTest<-predict(model, newdata=testingPCA)
+answers<-as.character(predTest)
+```
+Well, here the accuracy was 100% so beyond expectations ;)
